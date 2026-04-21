@@ -6,6 +6,11 @@ frontend/node_modules/
 dist/
 static/
 
+# Sensitive data
+.env
+.env.local
+.env.*.local
+
 # Build config
 vite.config.ts
 tsconfig.json
