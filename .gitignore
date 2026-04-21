@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Sensitive data (should not be committed)
+.env
+.env.*
+!.env.example
+
+# Temporary directories (does not need version control)
+uploads/
+__pycache__/
+
+# Database files
+*.db
+
+# Log files
+*.log
+
+# OS files
+Thumbs.db
+.DS_Store

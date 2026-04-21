@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  audit-system:
+    build: .
+    container_name: audit-system
+    ports:
+      - "8000:8000"
+    volumes:
+      # 挂载数据目录，确保数据持久化（data 已打包进镜像，此处可选）
+      - ./data:/app/data
+      # 挂载上传文件目录（uploads 会持续增长，使用 volume 持久化）
+      - ./uploads:/app/uploads
+      # 挂载数据库文件
+      - ./audit_batches.db:/app/audit_batches.db
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

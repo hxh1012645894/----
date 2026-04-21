@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ISO 体系智能审核系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.staticfile.net/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://unpkg.com/jszip/dist/jszip.min.js"></script>
+    <script src="https://unpkg.com/docx-preview/dist/docx-preview.js"></script>
+    <style>
+        #app {
+            transition: all 0.5s ease;
+        }
+        #app.full-screen {
+            width: 50%;
+            padding-right: 1.5rem;
+            margin-left: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-8 overflow-x-hidden">
+    <div id="app"></div>
+    <script type="module" src="/main.js"></script>
+</body>
+</html>

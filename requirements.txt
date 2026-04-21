@@ -1,0 +1,16 @@
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+python-docx>=1.0.0
+openpyxl>=3.1.2
+pdfplumber>=0.10.0
+openai>=1.10.0
+requests>=2.31.0
+pydantic>=2.4.0
+python-dotenv>=1.0.0
+reportlab>=4.0.0
+# 前端开发依赖（用于构建）
+# npm install -g vite
+# npm install -g @vitejs/plugin-vue
+# 如需支持 .doc 文件（旧版 Word），取消下面这行的注释
+# spire.doc>=3.6.0

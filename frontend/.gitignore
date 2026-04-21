@@ -1,0 +1,12 @@
+# Frontend dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+dist/
+static/
+
+# Build config
+vite.config.ts
+tsconfig.json
+tsconfig.node.json
