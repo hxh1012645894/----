@@ -1,24 +1,58 @@
 version: '3.8'
 
 services:
-  audit-system:
-    build: .
-    container_name: audit-system
-    ports:
-      - "8000:8000"
+  # 后端服务
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: audit-backend
+    # 密钥在运行时注入，镜像中不含任何敏感信息
+    env_file:
+      - .env
     volumes:
-      # 挂载数据目录，确保数据持久化（data 已打包进镜像，此处可选）
-      - ./data:/app/data
-      # 挂载上传文件目录（uploads 会持续增长，使用 volume 持久化）
-      - ./uploads:/app/uploads
-      # 挂载数据库文件
-      - ./audit_batches.db:/app/audit_batches.db
+      # 上传文件持久化
+      - uploads_data:/app/uploads
+      # 数据库持久化（仅挂载专用目录，避免覆盖代码）
+      - db_data:/app/database
+    expose:
+      - "8000"
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
+      - DB_FILE=/app/database/audit_batches.db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - audit-network
+
+  # 前端服务（Nginx）
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: audit-frontend
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - audit-network
+
+# Docker volumes 用于数据持久化
+volumes:
+  uploads_data:
+  db_data:
+
+# 内部网络，前后端互通
+networks:
+  audit-network:
+    driver: bridge

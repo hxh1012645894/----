@@ -1171,11 +1171,6 @@ async def export_report_pdf(report_id: int):
     )
 
 
-@app.get("/")
-async def serve_index():
-    return FileResponse("index.html")
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host=BACKEND_HOST, port=BACKEND_PORT)

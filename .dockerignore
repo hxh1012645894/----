@@ -21,3 +21,10 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+# 前端目录（后端不需要）
+frontend/
+node_modules/
+# SQLite 数据库（使用 volume 持久化）
+*.db
+# 日志文件
+*.log
