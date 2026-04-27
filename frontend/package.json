@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "vue": "^3.3.4",
-    "docx-preview": "^0.10.4"
+    "docx-preview": "^0.3.7"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
