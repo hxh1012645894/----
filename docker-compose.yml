@@ -37,7 +37,7 @@ services:
       dockerfile: Dockerfile
     container_name: audit-frontend
     ports:
-      - "80:80"
+      - "8081:80"
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
