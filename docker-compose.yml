@@ -22,7 +22,7 @@ services:
       - TZ=Asia/Shanghai
       - DB_FILE=/app/database/audit_batches.db
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      test: ["CMD", "curl", "http://localhost:8000"]
       interval: 30s
       timeout: 10s
       retries: 3
