@@ -62,16 +62,20 @@ app.add_middleware(
 TEXTIN_APP_ID = os.getenv("TEXTIN_APP_ID")
 TEXTIN_SECRET_CODE = os.getenv("TEXTIN_SECRET_CODE")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+PROMPT_LLM_API_KEY = os.getenv("PROMPT_LLM_API_KEY")
+PROMPT_LLM_BASE_URL = os.getenv("PROMPT_LLM_BASE_URL")
+PROMPT_LLM_MODEL = os.getenv("PROMPT_LLM_MODEL", "glm-4.7")
 
 if not all([TEXTIN_APP_ID, TEXTIN_SECRET_CODE, DEEPSEEK_API_KEY]):
     print("警告: 请在 .env 文件中配置所有 API 密钥")
 
 # DeepSeek 客户端（用于审核）
-deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com/v1")
+deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
-# 智谱 AI 客户端（用于提示词优化）
-zhipu_client = OpenAI(api_key=ZHIPU_API_KEY, base_url="https://ark.cn-beijing.volces.com/api/coding/v3")
+# 提示词优化 LLM 客户端（通用 OpenAI 协议）
+prompt_llm_client = OpenAI(api_key=PROMPT_LLM_API_KEY, base_url=PROMPT_LLM_BASE_URL)
 
 DATA_DIR = os.getenv("DATA_DIR", "data")
 DB_FILE = os.getenv("DB_FILE", "audit_batches.db")
@@ -512,10 +516,10 @@ def call_deepseek_daily_inspection(evidence_text: str, standard_text: str) -> di
                         .replace("{top3_str}", top3_str)
 
     try:
-        logger.info("正在调用 deepseek-chat 模型...")
+        logger.info(f"正在调用 {DEEPSEEK_MODEL} 模型...")
         start_time = time.time()
         response = deepseek_client.chat.completions.create(
-            model="deepseek-chat",
+            model=DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2
         )
@@ -546,10 +550,10 @@ def call_deepseek_audit(standard_text: str, evidence_text: str) -> dict:
     prompt = base_prompt.replace("{standard_text}", standard_text).replace("{evidence_text}", evidence_text)
 
     try:
-        logger.info("正在调用 deepseek-chat 模型...")
+        logger.info(f"正在调用 {DEEPSEEK_MODEL} 模型...")
         start_time = time.time()
         response = deepseek_client.chat.completions.create(
-            model="deepseek-chat",
+            model=DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1 # 保持较低温度，确保逻辑推演的严谨性和稳定性
         )
@@ -690,7 +694,7 @@ async def update_prompt(prompt_key: str, payload: PromptUpdate):
 async def improve_prompt_via_ai(payload: AIImproveRequest):
     logger.info("=" * 60)
     logger.info("开始调用智谱 AI 提示词优化...")
-    logger.info(f"模型: glm-4.7")
+    logger.info(f"模型: {PROMPT_LLM_MODEL}")
     logger.info(f"用户反馈: {payload.issues_feedback[:100]}...")
 
     meta_prompt = f"""
@@ -711,21 +715,21 @@ async def improve_prompt_via_ai(payload: AIImproveRequest):
     3. 只需要返回优化后的纯提示词文本，不要包含任何 "```" 代码块标记，也不要解释你的修改过程。
     """
     try:
-        logger.info("正在调用智谱 AI glm-4.7 模型...")
+        logger.info(f"正在调用提示词优化 LLM {PROMPT_LLM_MODEL} 模型...")
         start_time = time.time()
-        response = zhipu_client.chat.completions.create(
-            model="glm-4.7",
+        response = prompt_llm_client.chat.completions.create(
+            model=PROMPT_LLM_MODEL,
             messages=[{"role": "user", "content": meta_prompt}],
             temperature=0.3
         )
         elapsed = time.time() - start_time
         optimized_prompt = response.choices[0].message.content.strip()
-        logger.info(f"智谱 AI 模型调用成功! 耗时: {elapsed:.2f} 秒")
+        logger.info(f"提示词优化 LLM 模型调用成功! 耗时: {elapsed:.2f} 秒")
         logger.info(f"优化后提示词长度: {len(optimized_prompt)} 字符")
         logger.info("=" * 60)
         return {"status": "success", "data": {"optimized_prompt": optimized_prompt}}
     except Exception as e:
-        logger.error(f"智谱 AI 模型调用失败: {str(e)}")
+        logger.error(f"提示词优化 LLM 模型调用失败: {str(e)}")
         logger.info("=" * 60)
         return {"status": "error", "message": str(e)}
 
