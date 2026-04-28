@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import WorkSpace from './components/WorkSpace.vue'
 import ReportCenter from './components/ReportCenter.vue'
 import AdminPanel from './components/AdminPanel.vue'
+import AccidentLedger from './components/AccidentLedger.vue'
 
 // 当前标签页状态
 const currentTab = ref('workspace')
@@ -13,6 +14,7 @@ const filePreviewVisible = ref(false)
 // 组件引用
 const reportCenterRef = ref(null)
 const adminPanelRef = ref(null)
+const accidentLedgerRef = ref(null)
 
 // 切换标签页
 const switchTab = (tab) => {
@@ -25,6 +27,10 @@ const switchTab = (tab) => {
   if (tab === 'admin' && adminPanelRef.value) {
     adminPanelRef.value.loadPrompts()
     adminPanelRef.value.loadDictionary()
+  }
+  // 切换到事故台账时刷新列表
+  if (tab === 'accident_ledger' && accidentLedgerRef.value) {
+    accidentLedgerRef.value.loadAccidents()
   }
 }
 
@@ -62,6 +68,13 @@ const onPreviewStateChanged = (val) => {
       >
         ⚙️ 引擎配置中台
       </button>
+      <button
+        @click="switchTab('accident_ledger')"
+        :class="currentTab === 'accident_ledger' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-100 border'"
+        class="px-6 py-2 rounded-lg font-bold transition-colors"
+      >
+        事故分析台账
+      </button>
     </div>
 
     <!-- 工作台 -->
@@ -76,6 +89,9 @@ const onPreviewStateChanged = (val) => {
 
     <!-- 配置中台 -->
     <AdminPanel v-if="currentTab === 'admin'" ref="adminPanelRef" />
+
+    <!-- 事故台账 -->
+    <AccidentLedger v-if="currentTab === 'accident_ledger'" ref="accidentLedgerRef" />
   </div>
 </template>
 

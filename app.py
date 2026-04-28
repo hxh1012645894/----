@@ -119,6 +119,37 @@ def init_db():
         )
     ''')
 
+    # 新增：事故记录表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS accident_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            accident_time DATETIME NOT NULL,
+            location TEXT NOT NULL,
+            accident_type TEXT NOT NULL,
+            casualties INTEGER DEFAULT 0,
+            description TEXT,
+            attachments_json TEXT,
+            status TEXT DEFAULT 'draft',
+            created_at DATETIME DEFAULT (datetime('now', '+8 hours')),
+            submitted_at DATETIME,
+            updated_at DATETIME
+        )
+    ''')
+
+    # 新增：事故AI分析结果表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS accident_analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            accident_id INTEGER NOT NULL,
+            direct_cause TEXT,
+            indirect_cause TEXT,
+            lessons_learned TEXT,
+            rectification_measures TEXT,
+            analysis_time DATETIME DEFAULT (datetime('now', '+8 hours')),
+            FOREIGN KEY (accident_id) REFERENCES accident_records(id)
+        )
+    ''')
+
     # 初始化默认提示词（如果表为空）
     cursor.execute('SELECT count(*) FROM system_prompts')
     if cursor.fetchone()[0] == 0:
@@ -138,6 +169,29 @@ def init_db():
                        ('standard_audit', '标准体系交叉审核提示词', default_standard))
         cursor.execute("INSERT INTO system_prompts (prompt_key, prompt_name, content) VALUES (?, ?, ?)",
                        ('daily_inspection', '日常检查台账分析提示词', default_daily))
+
+        # 新增：事故根源分析提示词
+        default_accident = """你是一位拥有20年经验的EHS（环境、健康与安全）高级专家，擅长事故调查与根源分析。你的分析风格是：逻辑严密、追根溯源、注重系统性改进。
+
+【事故基本信息】：
+- 发生时间：{accident_time}
+- 发生地点：{location}
+- 事故类型：{accident_type}
+- 伤亡人数：{casualties}
+- 详细描述：{description}
+- 附件内容提取：{attachment_content}
+
+请对该事故进行专业的根源分析，输出以下四项分析结果（JSON格式）：
+
+1. "直接原因分析"：分析导致事故发生的直接技术原因或操作失误（如设备故障、违章操作、防护缺失等）
+2. "间接原因分析"：分析造成直接原因的深层管理原因（如培训不足、制度缺陷、监督不力、资源配置不合理等）
+3. "事故教训总结"：总结本次事故对企业和行业的重要警示和经验教训
+4. "整改措施建议"：提出具体、可执行的整改措施，包括技术措施和管理措施
+
+请保持严格的JSON输出格式，输出内容要专业、具体、可执行。"""
+
+        cursor.execute("INSERT INTO system_prompts (prompt_key, prompt_name, content) VALUES (?, ?, ?)",
+                       ('accident_analysis', '事故根源分析提示词', default_accident))
 
     conn.commit()
     conn.close()
@@ -754,6 +808,38 @@ async def save_dictionary(payload: dict):
         json.dump(payload, f, ensure_ascii=False, indent=4)
     return {"status": "success"}
 
+# --- 事故分析台账数据模型 ---
+ACCIDENT_TYPES = [
+    "火灾事故",
+    "爆炸事故",
+    "中毒事故",
+    "泄漏事故",
+    "机械伤害",
+    "高处坠落",
+    "物体打击",
+    "触电事故",
+    "灼烫事故",
+    "车辆伤害",
+    "其他事故"
+]
+
+class AccidentCreate(BaseModel):
+    accident_time: str
+    location: str
+    accident_type: str
+    casualties: int = 0
+    description: str = ""
+    attachments: List[str] = []
+    status: str = "draft"
+
+class AccidentUpdate(BaseModel):
+    accident_time: str = None
+    location: str = None
+    accident_type: str = None
+    casualties: int = None
+    description: str = None
+    attachments: List[str] = None
+
 # 定义保存请求的数据模型
 class BatchReportSave(BaseModel):
     batch_name: str
@@ -1179,6 +1265,328 @@ async def export_report_pdf(report_id: int):
         media_type="application/pdf",
         headers=headers
     )
+
+
+# ========================================
+# 事故分析台账 API 端点
+# ========================================
+
+def extract_accident_attachments(attachments_json: str) -> str:
+    """提取事故附件内容供AI分析"""
+    if not attachments_json:
+        return "无附件"
+
+    try:
+        paths = json.loads(attachments_json)
+        content_parts = []
+        for path in paths:
+            filename = path.replace("/uploads/", "")
+            full_path = os.path.join(UPLOAD_DIR, urllib.parse.unquote(filename))
+            if os.path.exists(full_path):
+                with open(full_path, "rb") as f:
+                    text = extract_upload_file_text(f.read(), filename)
+                    if text:
+                        content_parts.append(f"【附件：{filename}】\n{text}")
+        return "\n\n".join(content_parts) if content_parts else "附件内容提取失败"
+    except Exception as e:
+        logger.error(f"附件提取失败: {e}")
+        return "附件提取失败"
+
+
+def call_deepseek_accident_analysis(accident_data: dict, attachment_content: str = "") -> dict:
+    """调用DeepSeek进行事故根源分析"""
+    logger.info("=" * 60)
+    logger.info("开始调用 DeepSeek 事故根源分析模型...")
+
+    base_prompt = get_prompt_from_db('accident_analysis')
+    prompt = base_prompt.replace("{accident_time}", accident_data.get('accident_time', ''))\
+                        .replace("{location}", accident_data.get('location', ''))\
+                        .replace("{accident_type}", accident_data.get('accident_type', ''))\
+                        .replace("{casualties}", str(accident_data.get('casualties', 0)))\
+                        .replace("{description}", accident_data.get('description', ''))\
+                        .replace("{attachment_content}", attachment_content)
+
+    try:
+        response = deepseek_client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2
+        )
+        result_text = response.choices[0].message.content.strip()
+
+        # 清理JSON格式
+        if result_text.startswith("```json"):
+            result_text = result_text[7:]
+        if result_text.startswith("```"):
+            result_text = result_text[3:]
+        if result_text.endswith("```"):
+            result_text = result_text[:-3]
+        result_text = result_text.strip()
+        result_text = result_text.replace("{{", "{").replace("}}", "}")
+
+        result = json.loads(result_text)
+        logger.info("事故根源分析完成!")
+        logger.info("=" * 60)
+        return {
+            "direct_cause": result.get("直接原因分析", "分析完成"),
+            "indirect_cause": result.get("间接原因分析", ""),
+            "lessons_learned": result.get("事故教训总结", ""),
+            "rectification_measures": result.get("整改措施建议", "")
+        }
+    except Exception as e:
+        logger.error(f"事故分析调用失败: {str(e)}")
+        logger.info("=" * 60)
+        return {
+            "direct_cause": "分析失败",
+            "indirect_cause": str(e),
+            "lessons_learned": "无",
+            "rectification_measures": "请重新提交分析"
+        }
+
+
+@app.post("/api/accidents/upload")
+async def upload_accident_attachment(files: List[UploadFile] = File(...)):
+    """上传事故附件"""
+    uploaded_paths = []
+    for file in files:
+        file_bytes = await file.read()
+        unique_id = uuid.uuid4().hex[:8]
+        safe_filename = f"{unique_id}_{file.filename}"
+        save_path = os.path.join(UPLOAD_DIR, safe_filename)
+        with open(save_path, "wb") as buffer:
+            buffer.write(file_bytes)
+        uploaded_paths.append(f"/uploads/{urllib.parse.quote(safe_filename)}")
+    return {"status": "success", "data": uploaded_paths}
+
+
+@app.post("/api/accidents")
+async def create_accident(accident: AccidentCreate):
+    """创建事故记录"""
+    logger.info(f"创建事故记录: {accident.accident_type} @ {accident.location}")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    now = datetime.now(CHINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute('''
+        INSERT INTO accident_records
+        (accident_time, location, accident_type, casualties, description, attachments_json, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (accident.accident_time, accident.location, accident.accident_type,
+          accident.casualties, accident.description, json.dumps(accident.attachments, ensure_ascii=False),
+          accident.status, now, now))
+    accident_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    logger.info(f"事故记录创建成功: id={accident_id}")
+    return {"status": "success", "data": {"id": accident_id}}
+
+
+@app.get("/api/accidents")
+async def get_accidents():
+    """获取事故台账列表"""
+    logger.info("查询事故台账列表")
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, accident_time, location, accident_type, casualties, status, created_at FROM accident_records ORDER BY created_at DESC')
+    rows = cursor.fetchall()
+    conn.close()
+
+    accidents = []
+    for r in rows:
+        accidents.append({
+            "id": r["id"],
+            "accident_time": r["accident_time"],
+            "location": r["location"],
+            "accident_type": r["accident_type"],
+            "casualties": r["casualties"],
+            "status": r["status"],
+            "created_at": r["created_at"]
+        })
+
+    logger.info(f"查询事故台账完成: 共 {len(accidents)} 条记录")
+    return {"status": "success", "data": accidents}
+
+
+@app.get("/api/accidents/{accident_id}")
+async def get_accident_detail(accident_id: int):
+    """获取事故详情（含AI分析结果）"""
+    logger.info(f"查询事故详情: id={accident_id}")
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # 获取事故基本信息
+    cursor.execute('SELECT * FROM accident_records WHERE id = ?', (accident_id,))
+    accident = cursor.fetchone()
+
+    if not accident:
+        conn.close()
+        return {"status": "error", "message": "事故记录不存在"}
+
+    # 获取AI分析结果
+    cursor.execute('SELECT * FROM accident_analyses WHERE accident_id = ?', (accident_id,))
+    analysis = cursor.fetchone()
+    conn.close()
+
+    result = {
+        "id": accident["id"],
+        "accident_time": accident["accident_time"],
+        "location": accident["location"],
+        "accident_type": accident["accident_type"],
+        "casualties": accident["casualties"],
+        "description": accident["description"],
+        "attachments": json.loads(accident["attachments_json"] or "[]"),
+        "status": accident["status"],
+        "created_at": accident["created_at"],
+        "submitted_at": accident["submitted_at"],
+        "analysis": None
+    }
+
+    if analysis:
+        result["analysis"] = {
+            "direct_cause": analysis["direct_cause"],
+            "indirect_cause": analysis["indirect_cause"],
+            "lessons_learned": analysis["lessons_learned"],
+            "rectification_measures": analysis["rectification_measures"],
+            "analysis_time": analysis["analysis_time"]
+        }
+
+    logger.info(f"事故详情查询完成: id={accident_id}")
+    return {"status": "success", "data": result}
+
+
+@app.put("/api/accidents/{accident_id}")
+async def update_accident(accident_id: int, accident: AccidentUpdate):
+    """更新事故记录"""
+    logger.info(f"更新事故记录: id={accident_id}")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    # 检查记录是否存在
+    cursor.execute('SELECT id FROM accident_records WHERE id = ?', (accident_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return {"status": "error", "message": "事故记录不存在"}
+
+    # 构建更新SQL
+    update_fields = []
+    update_values = []
+
+    if accident.accident_time is not None:
+        update_fields.append("accident_time = ?")
+        update_values.append(accident.accident_time)
+    if accident.location is not None:
+        update_fields.append("location = ?")
+        update_values.append(accident.location)
+    if accident.accident_type is not None:
+        update_fields.append("accident_type = ?")
+        update_values.append(accident.accident_type)
+    if accident.casualties is not None:
+        update_fields.append("casualties = ?")
+        update_values.append(accident.casualties)
+    if accident.description is not None:
+        update_fields.append("description = ?")
+        update_values.append(accident.description)
+    if accident.attachments is not None:
+        update_fields.append("attachments_json = ?")
+        update_values.append(json.dumps(accident.attachments, ensure_ascii=False))
+
+    update_fields.append("updated_at = ?")
+    update_values.append(datetime.now(CHINA_TZ).strftime("%Y-%m-%d %H:%M:%S"))
+    update_values.append(accident_id)
+
+    sql = f"UPDATE accident_records SET {', '.join(update_fields)} WHERE id = ?"
+    cursor.execute(sql, update_values)
+    conn.commit()
+    conn.close()
+
+    logger.info(f"事故记录更新成功: id={accident_id}")
+    return {"status": "success"}
+
+
+@app.delete("/api/accidents/{accident_id}")
+async def delete_accident(accident_id: int):
+    """删除事故记录"""
+    logger.info(f"删除事故记录: id={accident_id}")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    # 先删除关联的分析记录
+    cursor.execute('DELETE FROM accident_analyses WHERE accident_id = ?', (accident_id,))
+
+    # 再删除事故记录
+    cursor.execute('DELETE FROM accident_records WHERE id = ?', (accident_id,))
+
+    if cursor.rowcount == 0:
+        conn.close()
+        logger.warning(f"删除事故失败: id={accident_id} 不存在")
+        return {"status": "error", "message": "事故记录不存在"}
+
+    conn.commit()
+    conn.close()
+    logger.info(f"事故记录删除成功: id={accident_id}")
+    return {"status": "success"}
+
+
+@app.post("/api/accidents/{accident_id}/submit")
+async def submit_accident_for_analysis(accident_id: int):
+    """提交事故并触发AI分析"""
+    logger.info(f"提交事故进行分析: id={accident_id}")
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # 获取事故记录
+    cursor.execute('SELECT * FROM accident_records WHERE id = ?', (accident_id,))
+    accident = cursor.fetchone()
+
+    if not accident:
+        conn.close()
+        return {"status": "error", "message": "事故记录不存在"}
+
+    if accident["status"] == "submitted":
+        conn.close()
+        return {"status": "error", "message": "该事故已提交分析"}
+
+    # 更新状态为已提交
+    now = datetime.now(CHINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute('UPDATE accident_records SET status = ?, submitted_at = ?, updated_at = ? WHERE id = ?',
+                   ('submitted', now, now, accident_id))
+    conn.commit()
+    conn.close()
+
+    # 准备数据并调用AI分析
+    accident_data = {
+        "accident_time": accident["accident_time"],
+        "location": accident["location"],
+        "accident_type": accident["accident_type"],
+        "casualties": accident["casualties"],
+        "description": accident["description"]
+    }
+
+    attachment_content = extract_accident_attachments(accident["attachments_json"])
+    analysis_result = call_deepseek_accident_analysis(accident_data, attachment_content)
+
+    # 保存分析结果
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO accident_analyses
+        (accident_id, direct_cause, indirect_cause, lessons_learned, rectification_measures, analysis_time)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (accident_id, analysis_result["direct_cause"], analysis_result["indirect_cause"],
+          analysis_result["lessons_learned"], analysis_result["rectification_measures"], now))
+    conn.commit()
+    conn.close()
+
+    logger.info(f"事故分析完成: id={accident_id}")
+    return {"status": "success", "data": analysis_result}
+
+
+@app.get("/api/accidents/types")
+async def get_accident_types():
+    """获取事故类型列表"""
+    return {"status": "success", "data": ACCIDENT_TYPES}
 
 
 if __name__ == "__main__":
