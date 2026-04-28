@@ -1,11 +1,33 @@
 # ISO 体系智能审核系统 - Docker 部署指南
 
+## 项目结构
+
+```
+审核系统/
+├── backend/                # 后端模块化代码
+│   ├── app.py             # 主入口
+│   ├── config.py          # 配置模块
+│   ├── database.py        # 数据库模块
+│   ├── models.py          # 数据模型
+│   ├── routers/           # API路由
+│   ├── services/          # AI服务
+│   └── utils/             # 工具函数
+├── frontend/               # 前端Vue项目
+│   ├── src/               # 源代码
+│   ├── Dockerfile         # 前端镜像
+│   └── nginx.conf         # Nginx配置
+├── data/                   # ISO标准文件
+├── Dockerfile              # 后端镜像
+├── docker-compose.yml      # 容器编排
+├── .env                    # 环境变量（敏感）
+├── .env.example            # 环境变量示例
+└── requirements.txt        # Python依赖
+```
+
 ## 部署架构
 
-本项目采用前后端分离的企业级部署架构：
-
 - **Backend**: Python FastAPI 服务（内部端口 8000）
-- **Frontend**: Nginx 静态服务（对外端口 80）
+- **Frontend**: Nginx 静态服务（对外端口 8081）
 
 前端 Nginx 作为反向代理，将 `/api/*` 和 `/uploads/*` 请求转发到后端服务。
 
@@ -30,7 +52,7 @@ cp .env.example .env
 ### 2. 一键启动前后端
 
 ```bash
-docker-compose up -d
+docker-compose up -d --build
 ```
 
 此命令会：
@@ -41,7 +63,7 @@ docker-compose up -d
 
 ### 3. 访问应用
 
-打开浏览器访问：`http://localhost`
+打开浏览器访问：`http://localhost:8081`
 
 ### 4. 查看日志
 
@@ -56,16 +78,20 @@ docker-compose logs -f backend
 docker-compose logs -f frontend
 ```
 
-### 5. 停止服务
+### 5. 常用操作
 
 ```bash
+# 停止服务
 docker-compose down
-```
 
-### 6. 停止并删除数据卷（清除所有数据）
-
-```bash
+# 停止并删除数据卷（清除所有数据）
 docker-compose down -v
+
+# 强制重新构建镜像
+docker-compose build --no-cache
+
+# 重新启动
+docker-compose up -d --force-recreate
 ```
 
 ## 数据持久化
@@ -78,8 +104,17 @@ docker-compose down -v
 
 ```bash
 docker volume ls
-docker volume inspect audit-system_uploads_data
+docker volume inspect audit-project_uploads_data
 ```
+
+## 端口说明
+
+| 服务 | 内部端口 | 外部端口 |
+|------|---------|---------|
+| Frontend (Nginx) | 80 | 8081 |
+| Backend (FastAPI) | 8000 | 不暴露 |
+
+外部用户只通过 Nginx（端口 8081）访问，API 请求由 Nginx 内部转发。
 
 ## 安全说明
 
@@ -103,34 +138,6 @@ services:
 
 这样镜像可以安全推送到任何 registry，密钥只在你的服务器上存在。
 
-## 备份与迁移
-
-### 备份数据
-
-```bash
-# 导出 Docker volumes 数据
-docker run --rm -v audit-system_uploads_data:/data -v $(pwd):/backup alpine tar -czf /backup/uploads_backup.tar.gz /data
-docker run --rm -v audit-system_db_data:/data -v $(pwd):/backup alpine tar -czf /backup/db_backup.tar.gz /data
-```
-
-### 迁移到新服务器
-
-```bash
-# 在新服务器上
-# 1. 复制项目代码
-scp -r . user@new-server:/path/to/audit-system/
-
-# 2. 复制备份数据
-scp uploads_backup.tar.gz db_backup.tar.gz user@new-server:/path/to/audit-system/
-
-# 3. 启动容器
-cd /path/to/audit-system
-docker-compose up -d
-
-# 4. 恢复数据（如需要）
-docker run --rm -v audit-system_uploads_data:/data -v $(pwd):/backup alpine tar -xzf /backup/uploads_backup.tar.gz -C /
-```
-
 ## 故障排查
 
 ### 容器无法启动
@@ -138,10 +145,12 @@ docker run --rm -v audit-system_uploads_data:/data -v $(pwd):/backup alpine tar 
 ```bash
 # 查看详细日志
 docker-compose logs backend
-docker-compose logs frontend
 
 # 检查容器状态
 docker-compose ps
+
+# 检查后端健康状态
+docker exec audit-backend curl -f http://localhost:8000
 ```
 
 ### 前端无法访问后端 API
@@ -150,25 +159,30 @@ docker-compose ps
 # 检查网络连通性
 docker exec audit-frontend ping backend
 
-# 检查后端健康状态
-docker exec audit-backend curl -f http://localhost:8000
+# 测试API
+curl http://localhost:8081/api/accidents/types
 ```
 
-### 重新构建
+### 数据库问题
 
 ```bash
-# 强制重新构建镜像
-docker-compose build --no-cache
+# 查看数据库文件
+docker exec audit-backend ls -la /app/database/
 
-# 重新启动
-docker-compose up -d --force-recreate
+# 进入容器调试
+docker exec -it audit-backend bash
 ```
 
-## 端口说明
+## 本地开发
 
-| 服务 | 内部端口 | 外部端口 |
-|------|---------|---------|
-| Frontend (Nginx) | 80 | 80 |
-| Backend (FastAPI) | 8000 | 不暴露 |
+本地开发时，前后端分开运行：
 
-外部用户只通过 Nginx（端口 80）访问，API 请求由 Nginx 内部转发。
+```bash
+# 后端
+cd backend && python app.py
+
+# 前端
+cd frontend && npm run dev
+```
+
+前端开发服务器会自动代理API请求到后端（见 vite.config.js）。

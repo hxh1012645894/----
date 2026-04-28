@@ -1,3 +1,7 @@
+# ===========================================
+# ISO 体系智能审核系统 - Docker Compose 配置
+# ===========================================
+
 name: audit-project
 
 services:
@@ -7,22 +11,26 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: audit-backend
-    # 密钥在运行时注入，镜像中不含任何敏感信息
     env_file:
       - .env
     volumes:
       # 上传文件持久化
       - uploads_data:/app/uploads
-      # 数据库持久化（仅挂载专用目录，避免覆盖代码）
+      # 数据库持久化
       - db_data:/app/database
     expose:
       - "8000"
     restart: unless-stopped
     environment:
+      # 时区设置
       - TZ=Asia/Shanghai
+      # 目录路径配置（覆盖默认值）
+      - UPLOAD_DIR=/app/uploads
+      - DATA_DIR=/app/data
       - DB_FILE=/app/database/audit_batches.db
+      - ROUTING_DICT_PATH=/app/element_routing_dictionary_final.json
     healthcheck:
-      test: ["CMD", "curl", "http://localhost:8000"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
       interval: 30s
       timeout: 10s
       retries: 3
