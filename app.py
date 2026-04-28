@@ -529,6 +529,8 @@ def call_deepseek_daily_inspection(evidence_text: str, standard_text: str) -> di
             result_text = result_text[7:-3].strip()
         elif result_text.startswith("```"):
             result_text = result_text[3:-3].strip()
+        # 修复 DeepSeek 可能转义的 JSON 花括号 {{ }} -> { }
+        result_text = result_text.replace("{{", "{").replace("}}", "}")
         logger.info(f"DeepSeek 模型调用成功! 耗时: {elapsed:.2f} 秒")
         logger.info(f"返回内容长度: {len(result_text)} 字符")
         logger.info("=" * 60)
@@ -559,10 +561,14 @@ def call_deepseek_audit(standard_text: str, evidence_text: str) -> dict:
         )
         elapsed = time.time() - start_time
         result_text = response.choices[0].message.content.strip()
+        logger.info(f"DeepSeek 原始返回内容: {result_text[:500]}")  # 调试：打印前500字符
         if result_text.startswith("```json"):
             result_text = result_text[7:-3].strip()
         elif result_text.startswith("```"):
             result_text = result_text[3:-3].strip()
+        # 修复 DeepSeek 可能转义的 JSON 花括号 {{ }} -> { }
+        result_text = result_text.replace("{{", "{").replace("}}", "}")
+        logger.info(f"处理后 JSON 内容: {result_text[:500]}")  # 调试：打印处理后内容
         logger.info(f"DeepSeek 模型调用成功! 耗时: {elapsed:.2f} 秒")
         logger.info(f"返回内容长度: {len(result_text)} 字符")
         logger.info("=" * 60)
