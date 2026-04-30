@@ -1,9 +1,11 @@
 <script setup>
 import { ref } from 'vue'
-import { createAccident, updateAccident, uploadAccidentAttachments, submitAccidentForAnalysis } from '../api/accident.js'
+import { createAccident, updateAccident, uploadAccidentAttachments, submitAccidentForAnalysis, fetchAccidentTypes } from '../api/accident.js'
 
-// 事故类型选项（固定列表）
-const accidentTypes = [
+const emit = defineEmits(['saved', 'gotoLedger'])
+
+// 事故类型列表（从API获取或使用默认）
+const accidentTypes = ref([
   '火灾事故',
   '爆炸事故',
   '中毒事故',
@@ -15,12 +17,12 @@ const accidentTypes = [
   '灼烫事故',
   '车辆伤害',
   '其他事故'
-]
+])
 
 // 表单数据
 const accidentTime = ref('')
 const location = ref('')
-const accidentType = ref(accidentTypes[0])
+const accidentType = ref('')
 const casualties = ref('')
 const description = ref('')
 const attachments = ref([])
@@ -31,12 +33,31 @@ const engineerName = ref('')
 // 状态
 const isLoading = ref(false)
 const isAnalyzing = ref(false)
-const editingId = ref(null)
 const message = ref('')
 const messageType = ref('success')
+const editingId = ref(null)
 
-// emit
-const emit = defineEmits(['saved'])
+// 加载事故类型
+const loadAccidentTypes = async () => {
+  try {
+    const res = await fetchAccidentTypes()
+    if (res.status === 'success' && res.data && res.data.length > 0) {
+      accidentTypes.value = res.data.map(t => t.type_name)
+      if (accidentTypes.value.length > 0) {
+        accidentType.value = accidentTypes.value[0]
+      }
+    } else {
+      // 使用默认列表
+      accidentType.value = accidentTypes.value[0]
+    }
+  } catch (e) {
+    // 使用默认列表
+    accidentType.value = accidentTypes.value[0]
+  }
+}
+
+// 初始化
+loadAccidentTypes()
 
 // 文件上传处理
 const handleFileUpload = async (event) => {
@@ -154,8 +175,9 @@ const submitAnalysis = async () => {
     }
 
     if (res.status === 'success') {
-      showMessage('AI分析完成')
+      showMessage('AI分析完成，正在跳转到台账...')
       emit('saved')
+      emit('gotoLedger')
       resetForm()
     } else {
       showMessage(res.message || '分析失败', 'error')
@@ -170,7 +192,7 @@ const submitAnalysis = async () => {
 const resetForm = () => {
   accidentTime.value = ''
   location.value = ''
-  accidentType.value = accidentTypes[0]
+  accidentType.value = accidentTypes.value[0] || ''
   casualties.value = ''
   description.value = ''
   attachments.value = []
@@ -202,8 +224,8 @@ defineExpose({
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-md">
-    <h2 class="text-2xl font-bold text-blue-800 mb-6">事故信息录入</h2>
+  <div class="p-6">
+    <h2 class="text-2xl font-bold text-orange-800 mb-6">事故信息录入</h2>
 
     <!-- 消息提示 -->
     <div v-if="message" :class="messageType === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'" class="p-3 rounded mb-4 text-center">
@@ -211,23 +233,23 @@ defineExpose({
     </div>
 
     <!-- 表单 -->
-    <div class="space-y-4">
+    <div class="bg-white rounded-lg shadow-md p-6 max-w-4xl mx-auto space-y-4">
       <!-- 事故时间 -->
       <div>
         <label class="block text-gray-700 font-medium mb-1">事故发生时间 *</label>
-        <input type="datetime-local" v-model="accidentTime" class="block w-full rounded-md border-gray-300 border p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+        <input type="datetime-local" v-model="accidentTime" class="block w-full rounded-md border-gray-300 border p-2 focus:border-orange-500 focus:ring-1 focus:ring-orange-500">
       </div>
 
       <!-- 事故地点 -->
       <div>
         <label class="block text-gray-700 font-medium mb-1">事故地点 *</label>
-        <input type="text" v-model="location" placeholder="请输入事故发生地点" class="block w-full rounded-md border-gray-300 border p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+        <input type="text" v-model="location" placeholder="请输入事故发生地点" class="block w-full rounded-md border-gray-300 border p-2 focus:border-orange-500 focus:ring-1 focus:ring-orange-500">
       </div>
 
       <!-- 事故类型 -->
       <div>
         <label class="block text-gray-700 font-medium mb-1">事故类型 *</label>
-        <select v-model="accidentType" class="block w-full rounded-md border-gray-300 border p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+        <select v-model="accidentType" class="block w-full rounded-md border-gray-300 border p-2 focus:border-orange-500 focus:ring-1 focus:ring-orange-500">
           <option v-for="type in accidentTypes" :key="type" :value="type">{{ type }}</option>
         </select>
       </div>
@@ -235,25 +257,25 @@ defineExpose({
       <!-- 所属部门 -->
       <div>
         <label class="block text-gray-700 font-medium mb-1">所属部门</label>
-        <input type="text" v-model="department" placeholder="请输入事故发生部门" class="block w-full rounded-md border-gray-300 border p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+        <input type="text" v-model="department" placeholder="请输入事故发生部门" class="block w-full rounded-md border-gray-300 border p-2 focus:border-orange-500 focus:ring-1 focus:ring-orange-500">
       </div>
 
       <!-- 属地工程师 -->
       <div>
         <label class="block text-gray-700 font-medium mb-1">属地工程师</label>
-        <input type="text" v-model="engineerName" placeholder="请输入属地工程师姓名" class="block w-full rounded-md border-gray-300 border p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+        <input type="text" v-model="engineerName" placeholder="请输入属地工程师姓名" class="block w-full rounded-md border-gray-300 border p-2 focus:border-orange-500 focus:ring-1 focus:ring-orange-500">
       </div>
 
       <!-- 伤亡情况 -->
       <div>
         <label class="block text-gray-700 font-medium mb-1">伤亡情况</label>
-        <input type="text" v-model="casualties" placeholder="请输入伤亡情况（如：轻伤2人，重伤1人）" class="block w-full rounded-md border-gray-300 border p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+        <input type="text" v-model="casualties" placeholder="请输入伤亡情况（如：轻伤2人，重伤1人）" class="block w-full rounded-md border-gray-300 border p-2 focus:border-orange-500 focus:ring-1 focus:ring-orange-500">
       </div>
 
       <!-- 详细描述 -->
       <div>
         <label class="block text-gray-700 font-medium mb-1">事故详细描述</label>
-        <textarea v-model="description" rows="4" placeholder="请详细描述事故经过、原因等信息" class="block w-full rounded-md border-gray-300 border p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"></textarea>
+        <textarea v-model="description" rows="4" placeholder="请详细描述事故经过、原因等信息" class="block w-full rounded-md border-gray-300 border p-2 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"></textarea>
       </div>
 
       <!-- 附件上传 -->
@@ -271,7 +293,7 @@ defineExpose({
 
       <!-- 操作按钮 -->
       <div class="flex space-x-4 pt-4">
-        <button @click="saveDraft" :disabled="isLoading || isAnalyzing" :class="isLoading ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'" class="px-6 py-2 rounded-lg text-white font-medium transition-colors">
+        <button @click="saveDraft" :disabled="isLoading || isAnalyzing" :class="isLoading ? 'bg-gray-400' : 'bg-orange-500 hover:bg-orange-600'" class="px-6 py-2 rounded-lg text-white font-medium transition-colors">
           {{ isLoading ? '处理中...' : '保存草稿' }}
         </button>
         <button @click="submitAnalysis" :disabled="isLoading || isAnalyzing" :class="isAnalyzing ? 'bg-yellow-500' : 'bg-green-500 hover:bg-green-600'" class="px-6 py-2 rounded-lg text-white font-medium transition-colors">

@@ -9,8 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tailwindcss/postcss": "^4.2.4",
+    "autoprefixer": "^10.5.0",
+    "docx-preview": "^0.3.7",
+    "html2pdf.js": "^0.14.0",
+    "jszip": "^3.10.1",
+    "postcss": "^8.5.12",
+    "tailwindcss": "^4.2.4",
     "vue": "^3.3.4",
-    "docx-preview": "^0.3.7"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

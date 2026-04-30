@@ -23,10 +23,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- 目录配置（支持Docker环境变量覆盖）---
-# 在Docker中，这些路径由环境变量指定；本地开发时使用相对路径
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-DATA_DIR = os.getenv("DATA_DIR", "data")
-DB_FILE = os.getenv("DB_FILE", "audit_batches.db")
+# 获取backend目录的绝对路径
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+# 在Docker中，这些路径由环境变量指定；本地开发时使用backend目录下的路径
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", os.path.join(BACKEND_DIR, "uploads"))
+DATA_DIR = os.getenv("DATA_DIR", os.path.join(BACKEND_DIR, "data"))
+DB_FILE = os.getenv("DB_FILE", os.path.join(BACKEND_DIR, "audit_batches.db"))
 
 # 确保目录存在
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -54,11 +56,8 @@ BACKEND_HOST = os.getenv("BACKEND_HOST", "0.0.0.0")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", 8000))
 
 # --- 加载匹配字典 ---
-# 在Docker中，ROUTING_DICT_PATH由环境变量指定；本地开发时自动计算
-ROUTING_DICT_PATH = os.getenv("ROUTING_DICT_PATH")
-if not ROUTING_DICT_PATH:
-    # 本地开发：计算项目根目录下的文件路径
-    ROUTING_DICT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "element_routing_dictionary_final.json")
+# 在Docker中，ROUTING_DICT_PATH由环境变量指定；本地开发时使用backend目录下的路径
+ROUTING_DICT_PATH = os.getenv("ROUTING_DICT_PATH", os.path.join(BACKEND_DIR, "element_routing_dictionary_final.json"))
 
 with open(ROUTING_DICT_PATH, "r", encoding="utf-8") as f:
     routing_dict = json.load(f)
@@ -67,8 +66,8 @@ with open(ROUTING_DICT_PATH, "r", encoding="utf-8") as f:
 ACCIDENT_TYPES = [
     "火灾事故",
     "爆炸事故",
-    "中毒事故",
-    "泄漏事故",
+    "中毒窒息",
+    "坍塌事故",
     "机械伤害",
     "高处坠落",
     "物体打击",

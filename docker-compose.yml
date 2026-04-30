@@ -15,9 +15,11 @@ services:
       - .env
     volumes:
       # 上传文件持久化
-      - uploads_data:/app/uploads
-      # 数据库持久化
-      - db_data:/app/database
+      - uploads_data:/app/backend/uploads
+      # 数据库文件持久化（bind mount）
+      - ./backend/audit_batches.db:/app/backend/audit_batches.db
+      # 匹配字典持久化（bind mount，支持动态修改）
+      - ./backend/element_routing_dictionary_final.json:/app/backend/element_routing_dictionary_final.json
     expose:
       - "8000"
     restart: unless-stopped
@@ -25,10 +27,10 @@ services:
       # 时区设置
       - TZ=Asia/Shanghai
       # 目录路径配置（覆盖默认值）
-      - UPLOAD_DIR=/app/uploads
-      - DATA_DIR=/app/data
-      - DB_FILE=/app/database/audit_batches.db
-      - ROUTING_DICT_PATH=/app/element_routing_dictionary_final.json
+      - UPLOAD_DIR=/app/backend/uploads
+      - DATA_DIR=/app/backend/data
+      - DB_FILE=/app/backend/audit_batches.db
+      # ROUTING_DICT_PATH 由 config.py 自动计算，无需设置
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000"]
       interval: 30s
@@ -58,7 +60,6 @@ services:
 # Docker volumes 用于数据持久化
 volumes:
   uploads_data:
-  db_data:
 
 # 内部网络，前后端互通
 networks:

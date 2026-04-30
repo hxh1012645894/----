@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* Excel 表格预览样式 */
+#excel-container table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+#excel-container td, #excel-container th {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+#excel-container tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+#excel-container tr:hover {
+  background-color: #f1f1f1;
+}

@@ -11,16 +11,19 @@ const isOptimizing = ref(false)
 // 字典配置状态
 const dictionaryJson = ref('')
 
-// 加载提示词列表
+// 加载提示词列表（只加载审核相关）
 const loadPrompts = async () => {
   const data = await fetchPrompts()
   if (data.status === 'success') {
-    systemPrompts.value = data.data.map(p => ({
-      ...p,
-      isExpanded: false,
-      isEditing: false,
-      tempContent: p.content
-    }))
+    // 只加载审核相关的提示词，排除事故相关的
+    systemPrompts.value = (data.data || [])
+      .filter(p => !p.prompt_key.includes('accident'))
+      .map(p => ({
+        ...p,
+        isExpanded: false,
+        isEditing: false,
+        tempContent: p.content
+      }))
   }
 }
 
@@ -85,7 +88,7 @@ onMounted(() => {
 <template>
   <div class="space-y-8">
     <!-- Prompt 管理 -->
-    <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
+    <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500">
       <h2 class="text-2xl font-bold text-gray-800 mb-6">🧠 核心审核大模型 Prompt 管理</h2>
       <p class="text-sm text-gray-500 mb-4">通过调优提示词，可以直接改变 AI 判罚的尺度和侧重点。所有变量（如 {standard_text}）请务必保留。</p>
 
@@ -96,7 +99,7 @@ onMounted(() => {
             class="bg-gray-50 p-4 cursor-pointer hover:bg-gray-100 flex justify-between items-center transition-colors"
           >
             <div>
-              <span class="font-bold text-lg text-indigo-900">{{ prompt.prompt_name }}</span>
+              <span class="font-bold text-lg text-blue-900">{{ prompt.prompt_name }}</span>
               <span class="ml-4 text-xs text-gray-400">最后更新: {{ prompt.updated_at }}</span>
             </div>
             <svg class="w-6 h-6 transform transition-transform" :class="prompt.isExpanded ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -111,7 +114,7 @@ onMounted(() => {
             <textarea
               v-else
               v-model="prompt.tempContent"
-              class="w-full h-64 p-4 border-2 border-indigo-300 rounded-md font-mono text-sm focus:ring focus:ring-indigo-200 outline-none"
+              class="w-full h-64 p-4 border-2 border-blue-300 rounded-md font-mono text-sm focus:ring focus:ring-blue-200 outline-none"
             ></textarea>
 
             <div class="mt-4 flex justify-between items-center">
@@ -119,7 +122,7 @@ onMounted(() => {
                 <button
                   v-if="!prompt.isEditing"
                   @click="prompt.isEditing = true"
-                  class="px-4 py-2 bg-indigo-100 text-indigo-700 font-bold rounded hover:bg-indigo-200"
+                  class="px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded hover:bg-blue-200"
                 >
                   编辑提示词
                 </button>

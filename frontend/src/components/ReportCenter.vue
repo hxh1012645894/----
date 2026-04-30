@@ -1,9 +1,20 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { fetchReports, deleteReport, exportWord, exportPDF } from '../api/report.js'
+import * as docx from 'docx-preview'
+import * as XLSX from 'xlsx'
 
 // 报告列表状态
 const historyReports = ref([])
+
+// 分页状态
+const currentPage = ref(1)
+const pageSize = 10
+const totalReports = ref(0)
+const totalPages = ref(0)
+
+// 页面缓存：存储已加载过的页面数据
+const reportCache = ref({})
 
 // 报告预览状态
 const previewModalVisible = ref(false)
@@ -13,32 +24,111 @@ const elementStats = ref([])
 // 文件预览状态
 const filePreviewModalVisible = ref(false)
 const currentPreviewFileType = ref('')
-const currentPreviewUrl = ref('')
 const currentPreviewRawUrl = ref('')
 const currentPreviewFileName = ref('')
 
-// 加载报告列表
-const loadReports = async () => {
+// 加载报告列表（分页）- 带缓存
+const loadReports = async (forceRefresh = false) => {
+  // 如果不是强制刷新且缓存中有当前页数据，直接使用缓存
+  if (!forceRefresh && reportCache.value[currentPage.value]) {
+    const cached = reportCache.value[currentPage.value]
+    historyReports.value = cached.data
+    totalReports.value = cached.total
+    totalPages.value = cached.totalPages
+    return
+  }
+
   try {
-    const data = await fetchReports()
-    if (data.status === 'success') historyReports.value = data.data
+    const data = await fetchReports(currentPage.value, pageSize)
+    if (data.status === 'success') {
+      historyReports.value = data.data
+      totalReports.value = data.pagination.total
+      totalPages.value = data.pagination.total_pages
+      // 存入缓存
+      reportCache.value[currentPage.value] = {
+        data: data.data,
+        total: data.pagination.total,
+        totalPages: data.pagination.total_pages
+      }
+    }
   } catch (e) {
     console.error('获取报告失败', e)
   }
 }
 
-// 删除报告
+// 强制刷新（清除缓存并重新加载当前页）
+const forceRefresh = async () => {
+  reportCache.value = {}
+  await loadReports(true)
+}
+
+// 翻页
+const goToPage = (page) => {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page
+    loadReports()
+  }
+}
+
+// 上一页
+const prevPage = () => {
+  if (currentPage.value > 1) {
+    currentPage.value--
+    loadReports()
+  }
+}
+
+// 下一页
+const nextPage = () => {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value++
+    loadReports()
+  }
+}
+
+// 生成页码按钮数组（最多显示5个页码）
+const getPageNumbers = () => {
+  const pages = []
+  const start = Math.max(1, currentPage.value - 2)
+  const end = Math.min(totalPages.value, currentPage.value + 2)
+  for (let i = start; i <= end; i++) {
+    pages.push(i)
+  }
+  return pages
+}
+
+// 删除报告 - 乐观更新
 const handleDeleteReport = async (id) => {
   if (!confirm('确定删除这份报告？')) return
 
-  const originalReports = [...historyReports.value]
-  historyReports.value = historyReports.value.filter(r => r.id !== id)
+  // 先从本地列表移除（乐观更新）
+  const index = historyReports.value.findIndex(r => r.id === id)
+  if (index !== -1) {
+    historyReports.value.splice(index, 1)
+    totalReports.value--
+    // 从缓存中也移除
+    Object.keys(reportCache.value).forEach(page => {
+      const cacheData = reportCache.value[page]
+      if (cacheData && cacheData.data) {
+        const cacheIndex = cacheData.data.findIndex(r => r.id === id)
+        if (cacheIndex !== -1) {
+          cacheData.data.splice(cacheIndex, 1)
+        }
+      }
+    })
+  }
 
   try {
     await deleteReport(id)
+    // 如果当前页空了，回到前一页
+    if (historyReports.value.length === 0 && currentPage.value > 1) {
+      currentPage.value--
+      loadReports(true)
+    }
   } catch (e) {
-    historyReports.value = originalReports
+    // 删除失败，恢复数据
     alert('删除失败: ' + e.message)
+    forceRefresh()
   }
 }
 
@@ -110,18 +200,62 @@ const openOriginalFile = (relativePath, filename) => {
             container.innerHTML = ''
             docx.renderAsync(blob, container).then(() => {
               currentPreviewFileType.value = 'docx'
+            }).catch(e => {
+              console.error('DOCX 渲染失败', e)
+              alert('DOCX 本地渲染失败，请下载查看原件')
+              filePreviewModalVisible.value = false
             })
           }
         })
         .catch(e => {
-          console.error('DOCX 渲染失败，降级给 XDOC', e)
-          currentPreviewUrl.value = 'https://view.xdocin.com/view?src=' + encodeURIComponent(fullPublicUrl)
-          currentPreviewFileType.value = 'xdoc'
+          console.error('DOCX 获取失败', e)
+          alert('文件获取失败，请下载查看原件')
+          filePreviewModalVisible.value = false
+        })
+    }, 100)
+  } else if (['xlsx', 'xls', 'csv'].includes(ext)) {
+    setTimeout(() => {
+      fetch(fullPublicUrl)
+        .then(res => res.arrayBuffer())
+        .then(ab => {
+          const workbook = XLSX.read(ab, { type: 'array' })
+          const tabsContainer = document.getElementById('excel-tabs')
+          const dataContainer = document.getElementById('excel-container')
+
+          tabsContainer.innerHTML = ''
+          dataContainer.innerHTML = ''
+
+          const renderSheet = (sheetName) => {
+            const worksheet = workbook.Sheets[sheetName]
+            dataContainer.innerHTML = XLSX.utils.sheet_to_html(worksheet)
+          }
+
+          workbook.SheetNames.forEach((sheetName, index) => {
+            const btn = document.createElement('button')
+            btn.innerText = sheetName
+            btn.className = 'px-4 py-1 text-sm font-bold rounded-t-lg border border-b-0 ' + (index === 0 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')
+            btn.onclick = () => {
+              Array.from(tabsContainer.children).forEach(c => c.className = 'px-4 py-1 text-sm font-bold rounded-t-lg border border-b-0 bg-gray-100 text-gray-600 hover:bg-gray-200')
+              btn.className = 'px-4 py-1 text-sm font-bold rounded-t-lg border border-b-0 bg-blue-100 text-blue-800'
+              renderSheet(sheetName)
+            }
+            tabsContainer.appendChild(btn)
+          })
+
+          if (workbook.SheetNames.length > 0) {
+            renderSheet(workbook.SheetNames[0])
+          }
+          currentPreviewFileType.value = 'xlsx'
+        })
+        .catch(e => {
+          console.error('Excel 解析失败', e)
+          alert('Excel 本地解析失败，请下载查看原件')
+          filePreviewModalVisible.value = false
         })
     }, 100)
   } else {
-    currentPreviewUrl.value = 'https://view.xdocin.com/view?src=' + encodeURIComponent(fullPublicUrl)
-    currentPreviewFileType.value = 'xdoc'
+    alert('当前格式不支持在线预览，请下载查看原件')
+    filePreviewModalVisible.value = false
   }
 }
 
@@ -142,7 +276,8 @@ const handleExportPDF = () => {
 
 // 暴露给父组件的方法
 defineExpose({
-  loadReports
+  loadReports,
+  forceRefresh
 })
 
 // 监听预览状态，同步到父组件
@@ -152,7 +287,7 @@ watch(filePreviewModalVisible, (val) => {
 })
 
 onMounted(() => {
-  loadReports()
+  loadReports(true)
 })
 </script>
 
@@ -160,7 +295,7 @@ onMounted(() => {
   <div class="bg-white p-6 rounded-lg shadow-md relative">
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-2xl font-bold text-gray-800">📁 历史综合报告库</h2>
-      <button @click="loadReports" class="text-blue-600 font-semibold">🔄 刷新列表</button>
+      <button @click="forceRefresh" class="text-blue-600 font-semibold">🔄 刷新列表</button>
     </div>
 
     <div class="overflow-x-auto">
@@ -189,6 +324,40 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 分页控件 -->
+    <div v-if="totalPages > 1" class="flex justify-between items-center mt-4 px-4">
+      <div class="text-sm text-gray-500">
+        共 {{ totalReports }} 份报告，第 {{ currentPage }}/{{ totalPages }} 页
+      </div>
+      <div class="flex space-x-2">
+        <button
+          @click="prevPage"
+          :disabled="currentPage === 1"
+          :class="currentPage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-100 border'"
+          class="px-4 py-2 rounded font-medium transition-colors"
+        >
+          上一页
+        </button>
+        <button
+          v-for="p in getPageNumbers()"
+          :key="p"
+          @click="goToPage(p)"
+          :class="currentPage === p ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100 border'"
+          class="px-4 py-2 rounded font-medium transition-colors"
+        >
+          {{ p }}
+        </button>
+        <button
+          @click="nextPage"
+          :disabled="currentPage === totalPages"
+          :class="currentPage === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-100 border'"
+          class="px-4 py-2 rounded font-medium transition-colors"
+        >
+          下一页
+        </button>
+      </div>
     </div>
 
     <!-- 报告预览模态框 -->
@@ -350,13 +519,17 @@ onMounted(() => {
 
         <iframe v-if="currentPreviewFileType === 'pdf'" :src="currentPreviewRawUrl" class="w-full h-full border-0 bg-white"></iframe>
 
-        <div v-show="currentPreviewFileType === 'docx'" id="docx-container" class="w-full bg-white min-h-full p-6 shadow-inner"></div>
+        <div v-show="currentPreviewFileType === 'docx'" id="docx-container" class="w-full bg-white min-h-full p-6 shadow-inner overflow-y-auto"></div>
+
+        <!-- Excel 预览：Sheet切换标签 + 数据表格 -->
+        <div v-show="currentPreviewFileType === 'xlsx'" class="w-full h-full flex flex-col bg-white">
+          <div id="excel-tabs" class="flex flex-wrap gap-1 p-2 bg-gray-50 border-b"></div>
+          <div id="excel-container" class="flex-1 overflow-auto p-4"></div>
+        </div>
 
         <div v-show="currentPreviewFileType === 'img'" class="w-full h-full flex items-center justify-center p-4 bg-white">
           <img :src="currentPreviewRawUrl" class="max-w-full max-h-full shadow-lg border" />
         </div>
-
-        <iframe v-if="currentPreviewFileType === 'xdoc'" :src="currentPreviewUrl" class="w-full h-full border-0 bg-white"></iframe>
       </div>
     </div>
   </div>

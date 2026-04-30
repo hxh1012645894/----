@@ -17,15 +17,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制应用程序代码
+# 复制应用程序代码（包含 json 字典文件和 data 目录）
 COPY backend/ .
 
-# 复制数据文件和配置文件到上级目录
-COPY data/ /app/data/
-COPY element_routing_dictionary_final.json /app/
-
-# 创建上传和数据库目录
-RUN mkdir -p /app/uploads /app/database
+# 创建上传目录（.dockerignore 排除了 uploads，需手动创建）
+RUN mkdir -p uploads
 
 # 暴露端口
 EXPOSE 8000

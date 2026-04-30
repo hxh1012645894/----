@@ -11,7 +11,10 @@ from config import routing_dict
 def loose_match_sub_element(major_element: str, file_name: str) -> str:
     """
     仅依靠上传文件名称与 JSON 进行匹配。
-    融合了包含、核心词根、最长公共子串、相似度四重匹配策略。
+
+    匹配策略：
+    1. 优先：文件名完全匹配（去除扩展名后与配置文件名完全一致）
+    2. 兜底：融合包含、核心词根、最长公共子串、相似度的四重模糊匹配
     """
     element_data = routing_dict.get(major_element, {})
     sub_elements = element_data.get("子要素", {})
@@ -33,6 +36,19 @@ def loose_match_sub_element(major_element: str, file_name: str) -> str:
     norm_filename = clean_text(base_filename)
     core_filename = get_core_noun(norm_filename)
 
+    # ========== 第一步：完全匹配（优先）==========
+    for rule_name, file_list in sub_elements.items():
+        for expected_file in file_list:
+            # 去除扩展名后进行完全匹配
+            expected_base = os.path.splitext(expected_file)[0]
+            if base_filename == expected_base:
+                return rule_name
+            # 清洗后完全匹配
+            expected_clean = clean_text(expected_base)
+            if norm_filename == expected_clean:
+                return rule_name
+
+    # ========== 第二步：模糊匹配（兜底）==========
     for rule_name, file_list in sub_elements.items():
         for expected_file in file_list:
             norm_expected = clean_text(expected_file)
@@ -41,13 +57,16 @@ def loose_match_sub_element(major_element: str, file_name: str) -> str:
             if not norm_expected:
                 continue
 
+            # 包含匹配
             if norm_expected in norm_filename:
                 return rule_name
 
+            # 最长公共子串匹配
             match = difflib.SequenceMatcher(None, norm_expected, norm_filename).find_longest_match(0, len(norm_expected), 0, len(norm_filename))
             if match.size >= 4:
                 return rule_name
 
+            # 相似度匹配
             similarity = difflib.SequenceMatcher(None, norm_expected, norm_filename).ratio()
             if similarity > 0.6:
                 return rule_name

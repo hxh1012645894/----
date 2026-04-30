@@ -1,8 +1,8 @@
 // 报告相关 API
 
-// 获取报告列表
-export async function fetchReports() {
-  const res = await fetch('/api/reports')
+// 获取报告列表（分页）
+export async function fetchReports(page = 1, pageSize = 10) {
+  const res = await fetch(`/api/reports?page=${page}&page_size=${pageSize}`)
   return res.json()
 }
 

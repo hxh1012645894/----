@@ -194,13 +194,24 @@ def call_deepseek_accident_analysis(accident_data: dict, attachment_content: str
         result_text = result_text.replace("{{", "{").replace("}}", "}")
 
         result = json.loads(result_text)
+        logger.info(f"AI返回原始数据: {result}")
         logger.info("事故根源分析完成!")
         logger.info("=" * 60)
+
+        # 处理整改措施：可能是数组或字符串
+        rectification_measures = result.get("整改措施建议", [])
+        if isinstance(rectification_measures, list):
+            rectification_text = "\n".join([f"{i+1}. {m}" for i, m in enumerate(rectification_measures)])
+        else:
+            rectification_text = str(rectification_measures or "")
+            rectification_measures = []
+
         return {
-            "direct_cause": result.get("直接原因分析", "分析完成"),
-            "indirect_cause": result.get("间接原因分析", ""),
-            "lessons_learned": result.get("事故教训总结", ""),
-            "rectification_measures": result.get("整改措施建议", "")
+            "direct_cause": str(result.get("直接原因分析", "分析完成") or "分析完成"),
+            "indirect_cause": str(result.get("间接原因分析", "") or ""),
+            "lessons_learned": str(result.get("事故教训总结", "") or ""),
+            "rectification_measures": rectification_text,
+            "rectification_measures_list": rectification_measures  # 返回数组供后续入库
         }
     except Exception as e:
         logger.error(f"事故分析调用失败: {str(e)}")
@@ -210,4 +221,67 @@ def call_deepseek_accident_analysis(accident_data: dict, attachment_content: str
             "indirect_cause": str(e),
             "lessons_learned": "无",
             "rectification_measures": "请重新提交分析"
+        }
+
+
+def generate_accident_alert(accident_data: dict, analysis_result: dict) -> dict:
+    """调用AI生成图文形式的事故警示"""
+    logger.info("=" * 60)
+    logger.info("开始调用 AI 生成事故警示...")
+
+    base_prompt = get_prompt_from_db('accident_alert')
+
+    # 构建事故基本信息字符串
+    accident_info = f"""- 事故类型：{accident_data.get('accident_type', '未知')}
+- 发生时间：{accident_data.get('accident_time', '未知')}
+- 发生地点：{accident_data.get('location', '未知')}
+- 伤亡情况：{accident_data.get('casualties', 0)}人
+- 详细描述：{accident_data.get('description', '无')}"""
+
+    # 构建AI分析结果字符串
+    analysis_info = f"""- 直接原因：{analysis_result.get('direct_cause', '未分析')}
+- 间接原因：{analysis_result.get('indirect_cause', '未分析')}
+- 事故教训：{analysis_result.get('lessons_learned', '无')}
+- 整改措施：{analysis_result.get('rectification_measures', '无')}"""
+
+    prompt = base_prompt.replace("{accident_data}", accident_info).replace("{analysis_result}", analysis_info)
+
+    try:
+        response = deepseek_client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        result_text = response.choices[0].message.content.strip()
+
+        # 清理JSON格式
+        if result_text.startswith("```json"):
+            result_text = result_text[7:]
+        if result_text.startswith("```"):
+            result_text = result_text[3:]
+        if result_text.endswith("```"):
+            result_text = result_text[:-3]
+        result_text = result_text.strip()
+        result_text = result_text.replace("{{", "{").replace("}}", "}")
+
+        result = json.loads(result_text)
+        logger.info("事故警示生成完成!")
+        logger.info("=" * 60)
+
+        return {
+            "alert_title": result.get("alert_title", "事故警示"),
+            "alert_content": result.get("alert_content", ""),
+            "key_points": result.get("key_points", []),
+            "safety_tips": result.get("safety_tips", []),
+            "training_requirements": result.get("training_requirements", [])
+        }
+    except Exception as e:
+        logger.error(f"事故警示生成失败: {str(e)}")
+        logger.info("=" * 60)
+        return {
+            "alert_title": f"关于{accident_data.get('accident_type', '')}事故的警示",
+            "alert_content": f"在{accident_data.get('location', '')}发生了一起{accident_data.get('accident_type', '')}事故，请各部门引以为戒，加强安全管理。",
+            "key_points": ["注意安全操作", "遵守规章制度"],
+            "safety_tips": ["定期检查设备", "加强培训教育"],
+            "training_requirements": []
         }

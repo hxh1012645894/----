@@ -9,7 +9,7 @@ from typing import List
 
 from config import UPLOAD_DIR, routing_dict, logger
 from database import DB_FILE, get_prompt_from_db
-from utils.file_parser import extract_upload_file_text, extract_text_via_textin, get_standard_document_content
+from utils.file_parser import extract_text_via_textin, extract_upload_file_text, get_standard_document_content
 from utils.matching import loose_match_sub_element
 from services.ai_service import call_deepseek_audit, call_deepseek_daily_inspection
 

@@ -43,18 +43,36 @@ async def save_batch_report(report: BatchReportSave):
 
 
 @router.get("")
-async def get_reports():
-    """获取报告列表"""
-    logger.info("查询报告列表")
+async def get_reports(page: int = 1, page_size: int = 10):
+    """获取报告列表（分页）"""
+    logger.info(f"查询报告列表: page={page}, page_size={page_size}")
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM batch_reports ORDER BY created_at DESC')
+
+    # 获取总数
+    cursor.execute('SELECT COUNT(*) FROM batch_reports')
+    total = cursor.fetchone()[0]
+
+    # 分页查询
+    offset = (page - 1) * page_size
+    cursor.execute('SELECT * FROM batch_reports ORDER BY created_at DESC LIMIT ? OFFSET ?', (page_size, offset))
     rows = cursor.fetchall()
     conn.close()
-    report_count = len(rows)
-    logger.info(f"查询报告列表完成: 共 {report_count} 份报告")
-    return {"status": "success", "data": [dict(r) for r in rows]}
+
+    total_pages = (total + page_size - 1) // page_size  # 计算总页数
+
+    logger.info(f"查询报告列表完成: 共 {total} 份报告，第 {page} 页")
+    return {
+        "status": "success",
+        "data": [dict(r) for r in rows],
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages
+        }
+    }
 
 
 @router.delete("/{report_id}")

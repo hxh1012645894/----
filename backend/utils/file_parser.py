@@ -4,6 +4,8 @@
 import os
 import io
 import csv
+import re
+import zipfile
 import docx
 import openpyxl
 import pdfplumber
@@ -12,8 +14,10 @@ from docx import Document
 from docx.document import Document as DocxDocument
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
+from docx.oxml.ns import qn
 from docx.table import _Cell, Table
 from docx.text.paragraph import Paragraph
+from lxml import etree
 
 from config import TEXTIN_APP_ID, TEXTIN_SECRET_CODE, DATA_DIR, logger
 
@@ -36,8 +40,23 @@ def iter_block_items(parent):
             yield Table(child, parent)
 
 
+def extract_images_from_docx(file_bytes: bytes) -> list:
+    """
+    从 Word 文档中提取所有图片，返回图片字节列表
+    """
+    images = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+            for name in zf.namelist():
+                if name.startswith('word/media/') and any(name.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.bmp', '.gif']):
+                    images.append(zf.read(name))
+    except Exception as e:
+        logger.error(f"提取Word图片失败: {e}")
+    return images
+
+
 def parse_docx_in_order(file_stream) -> str:
-    """顺序解析 Docx 为 Markdown"""
+    """顺序解析 Docx 为 Markdown（含表格合并单元格过滤）"""
     doc = docx.Document(file_stream)
     content = []
     for block in iter_block_items(doc):
@@ -53,7 +72,37 @@ def parse_docx_in_order(file_stream) -> str:
                 if i == 0:
                     content.append("|" + "|".join(["---"] * len(row.cells)) + "|")
             content.append("\n")
-    return "\n".join(content)
+    # 对整体内容进行合并单元格过滤
+    return clean_merged_markdown_table("\n".join(content))
+
+
+def parse_docx_with_ocr(file_bytes: bytes) -> str:
+    """
+    增强版 Word 解析：文字+表格转Markdown + 图片OCR识别
+
+    处理流程：
+    1. 先解析文字和表格内容
+    2. 提取文档中的图片
+    3. 对图片进行OCR识别
+    4. 合并输出完整内容
+    """
+    # 1. 解析文字和表格
+    text_content = parse_docx_in_order(io.BytesIO(file_bytes))
+
+    # 2. 提取图片并OCR
+    images = extract_images_from_docx(file_bytes)
+    ocr_contents = []
+
+    for idx, img_bytes in enumerate(images):
+        if len(img_bytes) > 1000:  # 只处理较大的图片（可能是扫描件）
+            ocr_text = extract_text_via_textin(img_bytes)
+            if ocr_text:
+                ocr_contents.append(f"\n【图片{idx+1} OCR识别内容】\n{ocr_text}")
+
+    # 3. 合并内容
+    if ocr_contents:
+        return text_content + "\n" + "\n".join(ocr_contents)
+    return text_content
 
 
 def parse_pdf_in_order(pdf_stream) -> tuple:
@@ -133,7 +182,8 @@ def parse_pdf_in_order(pdf_stream) -> tuple:
                 if el['content']:
                     content.append(el['content'])
 
-    return "\n".join(content).strip(), requires_ocr
+    # 对整体内容进行合并单元格过滤后返回
+    return clean_merged_markdown_table("\n".join(content).strip()), requires_ocr
 
 
 def read_local_file_content(file_path: str) -> str:
@@ -167,8 +217,49 @@ def get_standard_document_content(major_element: str, matched_rule: str) -> str:
     return "未在 data 文件夹下找到对应的标准原文文件，请仅根据通用ISO常识审核。"
 
 
+def clean_merged_markdown_table(md_text: str) -> str:
+    """
+    清洗 Markdown 表格中因"合并单元格"导致的连续重复文本，
+    极大降低 Token 消耗，使大模型更容易理解键值对。
+    """
+    if not md_text:
+        return ""
+
+    lines = md_text.split('\n')
+    cleaned_lines = []
+
+    for line in lines:
+        # 判断这一行是不是表格内容 (以 | 开头且以 | 结尾)
+        if line.strip().startswith('|') and line.strip().endswith('|'):
+            # 如果是表头的分割线 (比如 |---|---| )，直接保留
+            if re.match(r'^\|[\s\-:|]+\|$', line.strip()):
+                cleaned_lines.append(line)
+                continue
+
+            # 提取每一个单元格的内容
+            cells = [c.strip() for c in line.split('|')[1:-1]]
+            deduped_cells = []
+            prev_cell = None
+
+            # 核心去重逻辑：如果当前格子和左边的格子内容一样，就忽略它
+            for cell in cells:
+                if cell != prev_cell or cell == "":
+                    deduped_cells.append(cell)
+                    prev_cell = cell
+
+            # 把去重后的格子重新拼成 Markdown 行
+            cleaned_lines.append('| ' + ' | '.join(deduped_cells) + ' |')
+        else:
+            cleaned_lines.append(line)
+
+    return '\n'.join(cleaned_lines)
+
+
 def extract_text_via_textin(file_bytes: bytes) -> str:
-    """调用 TextIn xParse 文档解析接口，直接输出原生 Markdown"""
+    """
+    调用 TextIn pdf_to_markdown 接口解析文档/图片，
+    返回原生 Markdown，并自动清洗表格合并单元格重复内容。
+    """
     url = "https://api.textin.com/ai/service/v1/pdf_to_markdown"
 
     headers = {
@@ -184,15 +275,17 @@ def extract_text_via_textin(file_bytes: bytes) -> str:
     }
 
     try:
-        response = requests.post(url, headers=headers, params=params, data=file_bytes)
+        response = requests.post(url, headers=headers, params=params, data=file_bytes, timeout=60)
         result = response.json()
 
         if result.get("code") == 200:
-            return result.get("result", {}).get("markdown", "")
+            raw_markdown = result.get("result", {}).get("markdown", "")
+            # 清洗表格中的合并单元格重复内容
+            return clean_merged_markdown_table(raw_markdown)
         else:
-            print(f"TextIn 接口报错: {result.get('message')}")
+            logger.warning(f"TextIn 接口报错: {result.get('message')}")
     except Exception as e:
-        print(f"云端解析异常: {e}")
+        logger.error(f"云端解析异常: {e}")
 
     return "解析失败"
 
@@ -201,10 +294,10 @@ def extract_upload_file_text(file_bytes: bytes, filename: str) -> str:
     """解析用户上传的待审证据文件：自上而下顺序解析 + 云端兜底"""
     try:
         if filename.endswith(".docx"):
-            return parse_docx_in_order(io.BytesIO(file_bytes))
+            return parse_docx_with_ocr(file_bytes)
 
         elif filename.endswith(".doc"):
-            print(f"[{filename}] .doc 格式暂不支持，请转换为 .docx 格式")
+            logger.warning(f"[{filename}] .doc 格式暂不支持，请转换为 .docx 格式")
             return ""
 
         elif filename.endswith(".xlsx"):
@@ -218,7 +311,8 @@ def extract_upload_file_text(file_bytes: bytes, filename: str) -> str:
                     content.append("| " + " | ".join(row_data) + " |")
                     if i == 0:
                         content.append("|" + "|".join(["---"] * len(row_data)) + "|")
-            return "\n".join(content)
+            # 对整体内容进行合并单元格过滤
+            return clean_merged_markdown_table("\n".join(content))
 
         elif filename.endswith(".csv"):
             text = file_bytes.decode('utf-8-sig', errors='ignore')
@@ -230,17 +324,18 @@ def extract_upload_file_text(file_bytes: bytes, filename: str) -> str:
                 content.append("| " + " | ".join(row_data) + " |")
                 if i == 0:
                     content.append("|" + "|".join(["---"] * len(row_data)) + "|")
-            return "\n".join(content)
+            # 对整体内容进行合并单元格过滤
+            return clean_merged_markdown_table("\n".join(content))
 
         elif filename.endswith(".pdf"):
             result_text, requires_ocr = parse_pdf_in_order(io.BytesIO(file_bytes))
 
             if len(result_text) < 50 or "|" not in result_text or requires_ocr:
-                print(f"[{filename}] 识别为混合型/扫描型 PDF，智能切换至 TextIn 云端解析...")
+                logger.info(f"[{filename}] 识别为混合型/扫描型 PDF，智能切换至 TextIn 云端解析...")
                 return extract_text_via_textin(file_bytes)
 
             return result_text
 
     except Exception as e:
-        print(f"数据解析遭遇异常: {e}")
+        logger.error(f"数据解析遭遇异常: {e}")
     return ""
