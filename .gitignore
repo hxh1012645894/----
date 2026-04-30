@@ -43,3 +43,7 @@ __pycache__/
 # OS files
 Thumbs.db
 .DS_Store
+
+# Frontend (backup ignore rules)
+frontend/node_modules/
+frontend/dist/

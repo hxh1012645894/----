@@ -317,21 +317,87 @@ async def update_accident(accident_id: int, accident: AccidentUpdate):
 
 @router.delete("/{accident_id}")
 async def delete_accident(accident_id: int):
-    """删除事故记录"""
+    """删除事故记录及其所有相关附件文件"""
     logger.info(f"删除事故记录: id={accident_id}")
     conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
+    # 先获取事故附件列表
+    cursor.execute('SELECT attachments_json FROM accident_records WHERE id = ?', (accident_id,))
+    row = cursor.fetchone()
+    if row is None:
+        conn.close()
+        logger.warning(f"删除事故失败: id={accident_id} 不存在")
+        return {"status": "error", "message": "事故记录不存在"}
+
+    # 删除事故附件文件
+    attachments_json = row["attachments_json"]
+    if attachments_json:
+        try:
+            attachments = json.loads(attachments_json)
+            for attachment_path in attachments:
+                if attachment_path.startswith('/uploads/'):
+                    filename = attachment_path.replace('/uploads/', '')
+                    filepath = os.path.join(UPLOAD_DIR, urllib.parse.unquote(filename))
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                        logger.info(f"已删除事故附件: {filepath}")
+        except Exception as e:
+            logger.warning(f"删除事故附件时出错: {e}")
+
+    # 获取并删除整改措施的完成证明附件
+    cursor.execute('SELECT completion_proof_json FROM rectification_measures WHERE accident_id = ?', (accident_id,))
+    measure_rows = cursor.fetchall()
+    for measure_row in measure_rows:
+        completion_proof_json = measure_row["completion_proof_json"]
+        if completion_proof_json:
+            try:
+                completion_proofs = json.loads(completion_proof_json)
+                for proof_path in completion_proofs:
+                    if proof_path.startswith('/uploads/'):
+                        filename = proof_path.replace('/uploads/', '')
+                        filepath = os.path.join(UPLOAD_DIR, urllib.parse.unquote(filename))
+                        if os.path.exists(filepath):
+                            os.remove(filepath)
+                            logger.info(f"已删除整改证明附件: {filepath}")
+            except Exception as e:
+                logger.warning(f"删除整改证明附件时出错: {e}")
+
+    # 获取并删除培训记录的附件
+    cursor.execute('SELECT sign_sheet_attachment, photo_attachments_json FROM training_records WHERE accident_id = ?', (accident_id,))
+    training_rows = cursor.fetchall()
+    for training_row in training_rows:
+        # 删除签到表附件
+        sign_sheet = training_row["sign_sheet_attachment"]
+        if sign_sheet and sign_sheet.startswith('/uploads/'):
+            filename = sign_sheet.replace('/uploads/', '')
+            filepath = os.path.join(UPLOAD_DIR, urllib.parse.unquote(filename))
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                logger.info(f"已删除培训签到表: {filepath}")
+
+        # 删除照片附件
+        photo_attachments_json = training_row["photo_attachments_json"]
+        if photo_attachments_json:
+            try:
+                photo_attachments = json.loads(photo_attachments_json)
+                for photo_path in photo_attachments:
+                    if photo_path.startswith('/uploads/'):
+                        filename = photo_path.replace('/uploads/', '')
+                        filepath = os.path.join(UPLOAD_DIR, urllib.parse.unquote(filename))
+                        if os.path.exists(filepath):
+                            os.remove(filepath)
+                            logger.info(f"已删除培训照片: {filepath}")
+            except Exception as e:
+                logger.warning(f"删除培训照片时出错: {e}")
+
+    # 删除数据库记录
     cursor.execute('DELETE FROM rectification_measures WHERE accident_id = ?', (accident_id,))
     cursor.execute('DELETE FROM training_records WHERE accident_id = ?', (accident_id,))
     cursor.execute('DELETE FROM accident_alerts WHERE accident_id = ?', (accident_id,))
     cursor.execute('DELETE FROM accident_analyses WHERE accident_id = ?', (accident_id,))
     cursor.execute('DELETE FROM accident_records WHERE id = ?', (accident_id,))
-
-    if cursor.rowcount == 0:
-        conn.close()
-        logger.warning(f"删除事故失败: id={accident_id} 不存在")
-        return {"status": "error", "message": "事故记录不存在"}
 
     conn.commit()
     conn.close()
@@ -991,15 +1057,43 @@ async def check_and_mark_overdue():
 
 @router.delete("/{accident_id}/trainings/{training_id}")
 async def delete_training(accident_id: int, training_id: int):
-    """删除培训记录"""
+    """删除培训记录及其附件文件"""
     conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute('DELETE FROM training_records WHERE id = ? AND accident_id = ?', (training_id, accident_id))
-    if cursor.rowcount == 0:
+    # 先获取培训记录的附件
+    cursor.execute('SELECT sign_sheet_attachment, photo_attachments_json FROM training_records WHERE id = ? AND accident_id = ?', (training_id, accident_id))
+    row = cursor.fetchone()
+    if row is None:
         conn.close()
         return {"status": "error", "message": "培训记录不存在"}
 
+    # 删除签到表附件
+    sign_sheet = row["sign_sheet_attachment"]
+    if sign_sheet and sign_sheet.startswith('/uploads/'):
+        filename = sign_sheet.replace('/uploads/', '')
+        filepath = os.path.join(UPLOAD_DIR, urllib.parse.unquote(filename))
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            logger.info(f"已删除签到表附件: {filepath}")
+
+    # 删除照片附件
+    photo_attachments_json = row["photo_attachments_json"]
+    if photo_attachments_json:
+        try:
+            photo_attachments = json.loads(photo_attachments_json)
+            for photo_path in photo_attachments:
+                if photo_path.startswith('/uploads/'):
+                    filename = photo_path.replace('/uploads/', '')
+                    filepath = os.path.join(UPLOAD_DIR, urllib.parse.unquote(filename))
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                        logger.info(f"已删除照片附件: {filepath}")
+        except Exception as e:
+            logger.warning(f"删除照片附件时出错: {e}")
+
+    cursor.execute('DELETE FROM training_records WHERE id = ? AND accident_id = ?', (training_id, accident_id))
     conn.commit()
     conn.close()
     return {"status": "success"}

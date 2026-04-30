@@ -5,6 +5,7 @@ import os
 import io
 import json
 import sqlite3
+import urllib.parse
 import docx
 from datetime import datetime
 from urllib.parse import quote
@@ -20,7 +21,7 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from config import DB_FILE, logger, CHINA_TZ
+from config import DB_FILE, UPLOAD_DIR, logger, CHINA_TZ
 from models import BatchReportSave
 
 router = APIRouter(prefix="/api/reports", tags=["报告"])
@@ -77,15 +78,38 @@ async def get_reports(page: int = 1, page_size: int = 10):
 
 @router.delete("/{report_id}")
 async def delete_report(report_id: int):
-    """删除报告"""
+    """删除报告及其预览文件"""
     logger.info(f"删除报告: report_id={report_id}")
     conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM batch_reports WHERE id = ?', (report_id,))
-    if cursor.rowcount == 0:
+
+    # 先获取报告详情，提取预览文件路径
+    cursor.execute('SELECT details_json FROM batch_reports WHERE id = ?', (report_id,))
+    row = cursor.fetchone()
+    if row is None:
         logger.warning(f"删除报告失败: report_id={report_id} 不存在")
         conn.close()
         return {"status": "error", "message": "报告不存在"}
+
+    # 解析详情并删除预览文件
+    details_json = row["details_json"]
+    if details_json:
+        try:
+            details = json.loads(details_json)
+            for item in details:
+                preview_path = item.get("原文件在线地址")
+                if preview_path and preview_path.startswith('/uploads/'):
+                    filename = preview_path.replace('/uploads/', '')
+                    filepath = os.path.join(UPLOAD_DIR, urllib.parse.unquote(filename))
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                        logger.info(f"已删除预览文件: {filepath}")
+        except Exception as e:
+            logger.warning(f"删除预览文件时出错: {e}")
+
+    # 删除数据库记录
+    cursor.execute('DELETE FROM batch_reports WHERE id = ?', (report_id,))
     conn.commit()
     conn.close()
     logger.info(f"删除报告成功: report_id={report_id}")
