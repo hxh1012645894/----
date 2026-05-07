@@ -103,17 +103,23 @@ def clean_table_html(md_text: str) -> str:
         cells = [c.strip() for c in line.split('|')[1:-1]]
 
         # 横向去重：同一行相邻相同只保留第一个（相同数字不去重）
+        # 注意：用 prev_non_empty 记录上一个非空内容，避免去重后产生空单元格导致后续无法正确比较
         deduped_cells = []
-        prev_cell = ""
+        prev_non_empty = ""
         for cell in cells:
-            # 内容不同或为空 → 保留
-            if cell != prev_cell or cell == "":
+            if cell == "":
+                # 空单元格保留
                 deduped_cells.append(cell)
-            # 内容相同且是数字 → 保留（不去重）
+            elif cell != prev_non_empty:
+                # 内容与上一个非空不同 → 保留，并更新 prev_non_empty
+                deduped_cells.append(cell)
+                prev_non_empty = cell
             elif re.match(r'^[\d.]+$', cell):
+                # 相同内容且是数字 → 保留（不去重）
                 deduped_cells.append(cell)
-            # 内容相同且非数字 → 去重（不添加）
-            prev_cell = cell
+            else:
+                # 相同内容且非数字 → 去重，变成空
+                deduped_cells.append("")
 
         # 竖向去重：只对长文本标题去重（>10字符），短文本（签名等）保留
         final_cells = []
