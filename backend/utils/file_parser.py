@@ -102,15 +102,17 @@ def clean_table_html(md_text: str) -> str:
         # 提取单元格
         cells = [c.strip() for c in line.split('|')[1:-1]]
 
-        # 横向去重：同一行相邻相同只保留第一个（数字不去重）
+        # 横向去重：同一行相邻相同只保留第一个（相同数字不去重）
         deduped_cells = []
         prev_cell = ""
         for cell in cells:
-            # 数字不去重，保留原值
-            if re.match(r'^[\d.]+$', cell):
+            # 内容不同或为空 → 保留
+            if cell != prev_cell or cell == "":
                 deduped_cells.append(cell)
-            elif cell != prev_cell or cell == "":
+            # 内容相同且是数字 → 保留（不去重）
+            elif re.match(r'^[\d.]+$', cell):
                 deduped_cells.append(cell)
+            # 内容相同且非数字 → 去重（不添加）
             prev_cell = cell
 
         # 竖向去重：只对长文本标题去重（>10字符），短文本（签名等）保留
