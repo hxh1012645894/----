@@ -5,12 +5,57 @@ import json
 import time
 import os
 import urllib.parse
+import re
 from datetime import datetime
 
 from config import deepseek_client, prompt_llm_client, DEEPSEEK_MODEL, PROMPT_LLM_MODEL, UPLOAD_DIR, logger, CHINA_TZ
 from database import get_prompt_from_db, DB_FILE
 from utils.stats import calculate_inspection_stats
 from utils.file_parser import extract_upload_file_text
+
+
+def clean_and_parse_json(result_text: str) -> dict:
+    """清理并解析 JSON，增强容错能力"""
+    # 1. 去除代码块标记
+    if result_text.startswith("```json"):
+        result_text = result_text[7:]
+    if result_text.startswith("```"):
+        result_text = result_text[3:]
+    if result_text.endswith("```"):
+        result_text = result_text[:-3]
+    result_text = result_text.strip()
+
+    # 2. 处理双花括号
+    result_text = result_text.replace("{{", "{").replace("}}", "}")
+
+    # 3. 尝试直接解析
+    try:
+        return json.loads(result_text)
+    except json.JSONDecodeError:
+        pass
+
+    # 4. 修复常见问题：在 } 和 { 之间补充逗号，在键值对之间补充逗号
+    # 修复 "...}" 后面紧跟 "{" 的情况
+    result_text = re.sub(r'\}\s*\{', '},{', result_text)
+    # 修复 "...]" 后面紧跟 "{" 的情况
+    result_text = re.sub(r'\]\s*\{', '],{', result_text)
+    # 修复字符串结尾缺少引号的情况（简单处理）
+    result_text = re.sub(r'"\s*\n', '",\n', result_text)
+
+    # 5. 再次尝试解析
+    try:
+        return json.loads(result_text)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON 解析失败: {e}")
+        logger.error(f"原始内容前500字符: {result_text[:500]}")
+        # 尝试截取第一个完整的 JSON 对象
+        match = re.search(r'\{.*\}', result_text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except:
+                pass
+        raise
 
 
 def call_deepseek_daily_inspection(evidence_text: str, standard_text: str) -> dict:
@@ -47,14 +92,9 @@ def call_deepseek_daily_inspection(evidence_text: str, standard_text: str) -> di
         )
         elapsed = time.time() - start_time
         result_text = response.choices[0].message.content.strip()
-        if result_text.startswith("```json"):
-            result_text = result_text[7:-3].strip()
-        elif result_text.startswith("```"):
-            result_text = result_text[3:-3].strip()
-        result_text = result_text.replace("{{", "{").replace("}}", "}")
         logger.info(f"DeepSeek 模型调用成功! 耗时: {elapsed:.2f} 秒")
         logger.info("=" * 60)
-        return json.loads(result_text)
+        return clean_and_parse_json(result_text)
     except Exception as e:
         logger.error(f"DeepSeek 模型调用失败: {str(e)}")
         logger.info("=" * 60)
@@ -80,15 +120,9 @@ def call_deepseek_audit(standard_text: str, evidence_text: str) -> dict:
         elapsed = time.time() - start_time
         result_text = response.choices[0].message.content.strip()
         logger.info(f"DeepSeek 原始返回内容: {result_text[:500]}")
-        if result_text.startswith("```json"):
-            result_text = result_text[7:-3].strip()
-        elif result_text.startswith("```"):
-            result_text = result_text[3:-3].strip()
-        result_text = result_text.replace("{{", "{").replace("}}", "}")
-        logger.info(f"处理后 JSON 内容: {result_text[:500]}")
         logger.info(f"DeepSeek 模型调用成功! 耗时: {elapsed:.2f} 秒")
         logger.info("=" * 60)
-        return json.loads(result_text)
+        return clean_and_parse_json(result_text)
     except Exception as e:
         logger.error(f"DeepSeek 模型调用失败: {str(e)}")
         logger.info("=" * 60)
@@ -182,18 +216,7 @@ def call_deepseek_accident_analysis(accident_data: dict, attachment_content: str
             temperature=0.2
         )
         result_text = response.choices[0].message.content.strip()
-
-        # 清理JSON格式
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        result_text = result_text.strip()
-        result_text = result_text.replace("{{", "{").replace("}}", "}")
-
-        result = json.loads(result_text)
+        result = clean_and_parse_json(result_text)
         logger.info(f"AI返回原始数据: {result}")
         logger.info("事故根源分析完成!")
         logger.info("=" * 60)
@@ -253,18 +276,7 @@ def generate_accident_alert(accident_data: dict, analysis_result: dict) -> dict:
             temperature=0.3
         )
         result_text = response.choices[0].message.content.strip()
-
-        # 清理JSON格式
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        result_text = result_text.strip()
-        result_text = result_text.replace("{{", "{").replace("}}", "}")
-
-        result = json.loads(result_text)
+        result = clean_and_parse_json(result_text)
         logger.info("事故警示生成完成!")
         logger.info("=" * 60)
 
