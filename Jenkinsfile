@@ -43,7 +43,7 @@ pipeline {
                     curl -X PUT \
                         -H "content-type: application/json" \
                         -H "Cookie: KuboardUsername=admin; KuboardAccessKey=fncjize57zke.6fmfdfa7kfrjpmkjncdt8sw7y4rihjcc" \
-                        -d '{"kind":"deployments","namespace":"default","name":"audit-backend","images":{"crpi-gi78lo9xue8grpmj.cn-shanghai.personal.cr.aliyuncs.com/ht-agent/audit-project-backend":"crpi-gi78lo9xue8grpmj.cn-shanghai.personal.cr.aliyuncs.com/ht-agent/audit-project-backend:yourNewVersion"}}' \
+                        -d '{"kind":"deployments","namespace":"default","name":"audit-backend","images":{"172.16.10.76:80/audit-project/backend":"172.16.10.76:80/audit-project/backend:${IMAGE_TAG}"}}' \
                         "http://172.16.10.76:81/kuboard-api/cluster/k8s01/kind/CICDApi/admin/resource/updateImageTag"
                 """
             }
