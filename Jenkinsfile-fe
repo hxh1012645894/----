@@ -1,0 +1,54 @@
+pipeline {
+    agent any
+    
+    // 环境变量
+    environment {
+        HARBOR_URL = '172.16.10.76:80/audit-project'
+        // 【修改点 1】镜像名称改成 frontend
+        IMAGE_NAME = 'frontend'
+        IMAGE_TAG  = "v1.${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('1. 拉取最新代码') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('2. 构建前端 Docker 镜像') {
+            steps {
+                echo "开始构建前端镜像: ${HARBOR_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
+                // 【修改点 2】把最后的 . 改成了 ./frontend
+                // 这意味着 Docker 会专门钻进 frontend 文件夹里去找 Dockerfile 并打包
+                sh "docker build -t ${HARBOR_URL}/${IMAGE_NAME}:${IMAGE_TAG} ./frontend"
+            }
+        }
+        
+        stage('3. 推送镜像到 Harbor') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'harbor-auth', passwordVariable: 'HARBOR_PWD', usernameVariable: 'HARBOR_USER')]) {
+                    sh """
+                        docker login -u ${HARBOR_USER} -p ${HARBOR_PWD} 172.16.10.76:80
+                        docker push ${HARBOR_URL}/${IMAGE_NAME}:${IMAGE_TAG}
+                    """
+                }
+            }
+        }
+        
+        stage('4. 触发 K8s 自动更新') {
+            steps {
+                echo "通知 Kuboard 更新前端镜像版本..."
+                // 【修改点 3】注意下面数据的 name 和 images 路径，全部换成了前端的！
+                // 假设你在 K8s 里的前端应用名字叫 audit-frontend（如果不叫这个，请自行替换）
+                sh """
+                    curl -X PUT \
+                    -H "content-type: application/json" \
+                    -H "Cookie: KuboardUsername=admin; KuboardAccessKey=fncjize57zke.6fmfdfa7kfrjpmkjncdt8sw7y4rihjcc" \
+                    -d '{"kind":"deployments","namespace":"default","name":"audit-frontend","images":{"172.16.10.76:80/audit-project/frontend":"172.16.10.76:80/audit-project/frontend:${IMAGE_TAG}"}}' \
+                    "http://172.16.10.76:81/kuboard-api/cluster/k8s01/kind/CICDApi/admin/resource/updateImageTag"
+                """
+            }
+        }
+    }
+}
