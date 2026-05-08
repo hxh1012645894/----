@@ -8,10 +8,17 @@ FROM python:3.12-slim
 # 设置工作目录
 WORKDIR /app/backend
 
+# 配置国内 Debian 镜像源（解决网络问题）
+RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
+
 # 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
+# 配置 pip 使用国内镜像源
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && \
+    pip config set global.trusted-host mirrors.aliyun.com
 
 # 安装 Python 依赖
 COPY requirements.txt .
