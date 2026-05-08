@@ -88,7 +88,8 @@ def call_deepseek_daily_inspection(evidence_text: str, standard_text: str) -> di
         response = deepseek_client.chat.completions.create(
             model=DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2
+            temperature=0.2,
+            max_tokens=4096
         )
         elapsed = time.time() - start_time
         result_text = response.choices[0].message.content.strip()
@@ -115,7 +116,8 @@ def call_deepseek_audit(standard_text: str, evidence_text: str) -> dict:
         response = deepseek_client.chat.completions.create(
             model=DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1
+            temperature=0.1,
+            max_tokens=4096
         )
         elapsed = time.time() - start_time
         result_text = response.choices[0].message.content.strip()
@@ -213,7 +215,8 @@ def call_deepseek_accident_analysis(accident_data: dict, attachment_content: str
         response = deepseek_client.chat.completions.create(
             model=DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2
+            temperature=0.2,
+            max_tokens=4096
         )
         result_text = response.choices[0].message.content.strip()
         result = clean_and_parse_json(result_text)
@@ -273,7 +276,8 @@ def generate_accident_alert(accident_data: dict, analysis_result: dict) -> dict:
         response = deepseek_client.chat.completions.create(
             model=DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
+            temperature=0.3,
+            max_tokens=4096
         )
         result_text = response.choices[0].message.content.strip()
         result = clean_and_parse_json(result_text)

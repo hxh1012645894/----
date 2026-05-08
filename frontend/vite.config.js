@@ -5,17 +5,17 @@ export default defineConfig({
   plugins: [vue()],
   base: '',
   server: {
-    port: 5173,
+    port: 5175,
     host: true,
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         timeout: 300000,
       },
       '/uploads': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         timeout: 300000,
       }
