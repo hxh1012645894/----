@@ -41,9 +41,10 @@ pipeline {
                 // 【注意】这里必须替换为你真实的 Kuboard Webhook curl 命令
                 sh """
                     curl -X PUT \
-                    -H "Content-Type: application/yaml" \
-                    -d '{"kind":"deployments","namespace":"default","name":"audit-backend","images":{"crpi-gi78lo9xue8grpmj.cn-shanghai.personal.cr.aliyuncs.com/ht-agent/audit-project-backend":"${HARBOR_URL}/${IMAGE_NAME}:${IMAGE_TAG}"}}' \
-                    "https://172.16.10.76/kuboard-api/cluster/default/kind/CICDApi/admin/resource/updateImageTag"
+                        -H "content-type: application/json" \
+                        -H "Cookie: KuboardUsername=admin; KuboardAccessKey=fncjize57zke.6fmfdfa7kfrjpmkjncdt8sw7y4rihjcc" \
+                        -d '{"kind":"deployments","namespace":"default","name":"audit-backend","images":{"crpi-gi78lo9xue8grpmj.cn-shanghai.personal.cr.aliyuncs.com/ht-agent/audit-project-backend":"crpi-gi78lo9xue8grpmj.cn-shanghai.personal.cr.aliyuncs.com/ht-agent/audit-project-backend:yourNewVersion"}}' \
+                        "http://172.16.10.76:81/kuboard-api/cluster/k8s01/kind/CICDApi/admin/resource/updateImageTag"
                 """
             }
         }
