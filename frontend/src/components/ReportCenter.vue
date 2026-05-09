@@ -198,7 +198,22 @@ const openOriginalFile = (relativePath, filename) => {
           const container = document.getElementById('docx-container')
           if (container) {
             container.innerHTML = ''
-            docx.renderAsync(blob, container).then(() => {
+            docx.renderAsync(blob, container, null, {
+              className: 'docx',
+              inWrapper: true,
+              ignoreWidth: true,
+              ignoreHeight: true,
+              ignoreFonts: false,
+              breakPages: true,
+              ignoreLastRenderedPageBreak: true,
+              experimental: false,
+              trimTrailingBreaks: false,
+              useBase64URL: true,
+              renderHeaders: true,
+              renderFooters: true,
+              renderChanges: false,
+              renderComments: false
+            }).then(() => {
               currentPreviewFileType.value = 'docx'
             }).catch(e => {
               console.error('DOCX 渲染失败', e)
@@ -508,7 +523,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="flex-1 w-full h-full overflow-y-auto bg-gray-200 relative">
+      <div class="flex-1 w-full overflow-hidden bg-gray-200 relative flex flex-col">
         <div v-if="currentPreviewFileType === 'loading'" class="absolute inset-0 flex flex-col items-center justify-center bg-white z-10 text-gray-500">
           <svg class="animate-spin h-10 w-10 text-blue-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -519,11 +534,11 @@ onMounted(() => {
 
         <iframe v-if="currentPreviewFileType === 'pdf'" :src="currentPreviewRawUrl" class="w-full h-full border-0 bg-white"></iframe>
 
-        <div v-show="currentPreviewFileType === 'docx'" id="docx-container" class="w-full bg-white min-h-full p-6 shadow-inner overflow-y-auto"></div>
+        <div v-show="currentPreviewFileType === 'docx'" id="docx-container" class="flex-1 overflow-auto bg-white p-4"></div>
 
         <!-- Excel 预览：Sheet切换标签 + 数据表格 -->
-        <div v-show="currentPreviewFileType === 'xlsx'" class="w-full h-full flex flex-col bg-white">
-          <div id="excel-tabs" class="flex flex-wrap gap-1 p-2 bg-gray-50 border-b"></div>
+        <div v-show="currentPreviewFileType === 'xlsx'" class="flex-1 flex flex-col bg-white overflow-hidden">
+          <div id="excel-tabs" class="flex flex-wrap gap-1 p-2 bg-gray-50 border-b shrink-0"></div>
           <div id="excel-container" class="flex-1 overflow-auto p-4"></div>
         </div>
 
